@@ -415,11 +415,19 @@ echo "
     when: ansible_facts['os_family'] == 'Redhat'
     become: yes
 
+  - name: Copie du docker-compose sur les noeuds dans le repertoire home
+    src:  $DIR/wordpress_ansible/docker-compose-wordpress.yml  
+    dest:  ~/docker-compose.yml 
 
-  - name: Copie du docker-compose sur les noeuds 
-    copy: 
-      src:  $DIR/wordpress_ansible/docker-compose-wordpress.yml  
-      dest:  ~/wordpress/docker-compose.yml 
+  - name: Suppression du docker-compose existant dans le dossier wordpress
+    file:
+      path: ~/docker-compose.yml
+      state: absent
+  
+  - name: envoie du nouveau docker-compose dans le repertoire wordpress
+    command : mv ~/docker-compose.yml wordpress
+
+  
   - name: Execution du docker-compose sur la machine distante
     shell:
       cmd: docker-compose up -d

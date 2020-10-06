@@ -1,7 +1,0 @@
-#!/bin/bash
-### Creer un dossier s'il n'existe pas
-if [ ! -d $# ] ; then
-        mkdir $1 && cd $1 && touch script4 && sed -i "je suis un dix" script4;
-else 
-     echo "ce dossier existe";
-fi

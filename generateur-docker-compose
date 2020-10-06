@@ -421,7 +421,7 @@ echo "
 
   - name: Suppression du docker-compose existant dans le dossier wordpress
     file:
-      path: ~/docker-compose.yml
+      path: ~/wordpress/docker-compose.yml
       state: absent
   
   - name: envoie du nouveau docker-compose dans le repertoire wordpress

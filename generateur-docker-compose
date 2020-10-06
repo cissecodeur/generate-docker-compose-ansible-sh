@@ -1,0 +1,633 @@
+#!/bin/bash
+############################################################################################
+##                                                                                       ###
+##                         GENERATEUR DE DOCKER-COMPOSE  By CISSE   R4Y                  ###
+##                                                                                       ###
+############################################################################################
+
+######## VARIABLES ##############################
+
+ #dossier de volumes des conteneurs
+DIR="${HOME}/datas"
+
+######## FUNCTIONS ##########################
+
+## docs
+help(){
+
+    echo "USAGE :  
+
+      ${0##*/} [-h] [--help]
+
+      Options:
+         -h / --help : avoir de l'aide sur l'usage de l'outil
+         -p / --postgres : pour lancer postgres avec docker
+
+         -i / --ip : pour afficher les ip de tout les conteneurs de la machine
+         -j / --jenkins : pour lancer jenkins avec docker
+         -pro /--prometheus : pour lancer prometheus avec docker sur la machine
+         -gil /--gitlab : pour lancer gitlab avec docker sur la machine
+         -wp / --wordpress : pour lancer wordpress avec docker sur la machine
+         -wpa / --wordpress-ansible : pour deployer wordpress avec ansible et docker sur des machines distantes
+         -ja / --jenkins-ansible : pour deployer jenkins avec ansible et docker sur des machines distantes
+    "
+}
+
+## parametres a donner a l'outil
+parse_options(){
+
+   case $@ in
+      -h|--help)
+        help
+        exit
+      ;;
+      -a|--api)
+        api
+        ;;
+      -i|--ip)
+        ip
+        ;;
+      -m|--mariadb)
+        mariadb
+       ;;
+      -post|--postgres)
+        postgresql
+       ;;
+      -j|--jenkins)
+        jenkins
+        ;;
+      -gil|--gitlab)
+        gitlab
+       ;;
+      -wp|--wordpress)
+        wordpress
+       ;;
+      -wpa|--wordpress-ansible)
+        wordpress-ansible
+       ;; 
+      -ja|--jenkins-ansible)
+        jenkins-ansible
+       ;;
+       *)
+ 
+  echo "option inconnu , lancez  -h , --help pour de l'aide ."
+  exit 1
+
+esac
+}
+
+
+
+postgres(){
+  echo ""
+  echo "[1] - Installation de postgres..."
+  echo ""
+  echo "[2] - Creation du repertoire de montage des volumes de postgres..."
+  cd $HOME 
+   if [ -e datas ] && [ -d datas ] ; then
+     cd datas && mkdir postgres
+   else
+      mkdir  -p $DIR/postgres
+   fi
+  echo echo "[3] - Impression du docker-compose dans le repertoire..."
+       cd ${DIR}/postgres
+       sudo rm -rf docker-compose-postgres.yml  && sudo rm -rf postgres_data
+       sudo docker rm -f conteneur_postgres 
+      ## sudo fuser -k 2224/tcp  ## Fermer les ports pour laisser le new container se connecter
+      ## sudo fuser -k 8930/tcp 
+  echo "
+    version: '3'
+    service:
+         postgres:
+            image:postgres:latest
+            container_name:conteneur_postgres
+            environment:
+            - POSTGRES_USER= myuser
+            - POSTGRES_PASSWORD= myuserpassword
+            - POSTGRES_DB= mydb
+            ports:
+            - 5432 : 5432
+            volumes:
+            - ${DIR}/postgres/postgres_data:/var/lib/postgresql
+            networks:
+            - generateur
+    volumes:
+      postgres_data:
+        driver: local
+        driver_opts:
+          o:bind
+          type:none
+          device: ${DIR}/postgres
+
+    networks:
+      generateur:
+        driver:bridge
+          ipam:
+            config:
+            - subnet: 192.168.43.0/24
+  
+  
+   " >$DIR/docker-compose-postgres.yml
+echo "[4] - Lancement du conteneur postgres..."
+docker-compose -f $DIR/docker-compose-postgres.yml up -d
+       
+echo "
+ Credentials: 
+                       user:myuser
+                       password: myuserpassword
+                       db: mydb
+                       port: 5432
+command : psql -h <ip> -u myuser mydb 
+"
+}
+
+#Recuperation de toutes les ip de tout conteneurs en formattant la sortie du docker inspect
+ip(){
+    for i in $(docker ps -q) ; do docker inspect -f "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}} - {{.Name}}" $i ;
+    done
+}
+
+#Installation de gitlab
+gitlab(){
+  echo ""
+  echo "[1] - Installation de gitlab..."
+  echo ""
+  echo "[2] - recuperation du dossier de montage du volume de gitlab..."
+    cd $HOME
+    if [ -e datas ] && [ -d datas ] ; then
+       cd datas && mkdir gitlab
+    else
+       mkdir  -p $DIR/gitlab
+    fi
+  echo "[3] - Impression du docker-compose dans le repertoire..."
+       cd ${DIR}/gitlab
+       sudo rm -rf docker-compose-gitlab.yml  && sudo rm -rf gitlab_data
+       sudo docker rm -f gitlab_local 
+      ## sudo fuser -k 2224/tcp  ## Fermer les ports pour laisser le new container se connecter
+      ## sudo fuser -k 8930/tcp 
+  echo "
+  
+ gitlab:
+      image: 'gitlab/gitlab-ee:latest'
+      restart: always
+      hostname: 'gitlab.example.com'
+      container_name: gitlab_local
+      environment:
+        GITLAB_OMNIBUS_CONFIG: |
+          external_url 'http://${USER}.example.com:8930'
+          gitlab_rails['gitlab_shell_ssh_port'] = 2225
+      ports:
+        - '8930:8929'
+        - '2225:22'
+      volumes:
+        - '${DIR}/gitlab/gitlab_data/config:/etc/gitlab'
+        - '${DIR}/gitlab/gitlab_data/logs:/var/log/gitlab'
+        - '${DIR}/gitlab/gitlab_data/data:/var/opt/gitlab' 
+
+                  "> $DIR/gitlab/docker-compose-gitlab.yml
+            
+echo "[4] - Lancement du conteneur gitlab..."
+ docker-compose -f $DIR/gitlab/docker-compose-gitlab.yml up -d
+echo "
+   Credentials:                       
+            port: 8930 / 2225
+            nom : gitlab_local
+            http://gitlab.example.com:8930
+
+          Commands : faire la resolution du nom dans le fichier /etc/hosts de la machine hote
+     "
+       
+}
+
+
+
+#Installation de wordpress
+wordpress(){
+  echo ""
+  echo "[1] - Installation de wordpress..."
+  echo ""
+  echo "[2] - recuperation du dossier de montage du volume de wordpress..."
+    cd $HOME
+    if [ -e datas ] && [ -d datas ] ; then
+       cd datas && mkdir wordpress
+    else
+       mkdir  -p $DIR/wordpress
+    fi
+  echo "[3] - Impression du docker-compose dans le repertoire..."
+       cd ${DIR}/wordpress
+       sudo rm -rf docker-compose-wordpress.yml  && sudo rm -rf wordpress_data
+       sudo docker rm -f wordpress_site && sudo docker rm -f wp_mysql && sudo docker rm -f phpmyadmin 
+      ## sudo fuser -k 2224/tcp  ## Fermer les ports pour laisser le new container se connecter
+      ## sudo fuser -k 8930/tcp 
+  echo "
+  
+version: '3'
+services: 
+   db :
+      container_name: wp_mysql
+      image : mysql:5.7
+      volumes: 
+        - '${DIR}/wordpress/wordpress_data/wp_db:/var/lib/mysql'
+      restart : always
+      environment : 
+        MYSQL_ROOT_PASSWORD : rootpassword
+        MYSQL_DATABASE : db_mysql
+        MYSQL_USER : ${USER}
+        MYSQL_PASSWORD : mysqlPassword
+      networks :
+      - wp
+
+   wordpress: 
+     depends_on :
+       - db
+     container_name: wordpress_site
+     image: wordpress:latest
+     volumes: 
+       - '${DIR}/wordpress/wordpress_data/wp_statics:/var/www/html/'
+     ports:  
+       - 80:80
+     restart: always
+     environment: 
+       WORDPRESS_DB_HOST : db:3306
+       WORDPRESS_DB_USER : u_wordpress
+       WORDPRESS_DB_PASSWORD : p_wordpress
+     networks: 
+     - wp
+
+   phpmyadmin:
+     depends_on: 
+      - db
+     image: phpmyadmin/phpmyadmin
+     container_name: phpmyadmin
+     restart: always
+     ports: 
+      - 7777:80
+     environment: 
+       PMA_HOST: db
+       MYSQL_ROOT_PASSWORD : rootpassword
+     networks:
+        - wp
+networks: 
+  wp:
+    driver: bridge
+
+                  "> $DIR/wordpress/docker-compose-wordpress.yml
+            
+echo "[4] - Lancement du conteneur wordpress..."
+ #docker-compose -f $DIR/wordpress/docker-compose-wordpress.yml up -d
+echo "
+   Credentials:                       
+          phpMyAdmin ===> { port: 7777 ,
+                            user : root
+                            Mysql_root_password: rootpassword 
+                            nom : phpmyadmin                          
+                             } 
+
+           mysql ===> { port: 3306 ,
+                             mysql_root_password: rootpassword 
+                             mysql_user: ${USER}
+                             mysql_database: db_mysql
+                             mysql_password : mysqlPassword
+                             nom : wp_mysql                          
+                             } 
+                           
+          wordpress ===> { port: 80 ,
+                            wordpress_db_host : db:3306
+                            wordpress_db_user : u_wordpress
+                            wordpress_db_password : p_wordpress
+                            nom : wordpress_site                          
+                             } 
+          Commands : faire la resolution du nom dans le fichier /etc/hosts de la machine hote
+     "
+       
+}
+
+#Installation de wordpress avec ansible
+wordpress-ansible(){
+  echo ""
+  echo "[1] - Installation de wordpress..."
+  echo ""
+  echo "[2] - recuperation du dossier de montage du volume de wordpress..."
+    cd $HOME
+    if [ -e datas ] && [ -d datas ] ; then
+       cd datas && mkdir wordpress_ansible
+    else
+       mkdir  -p $DIR/wordpress_ansible
+    fi
+  echo "[3] - Impression du docker-compose dans le repertoire..."
+  cd ${DIR}/wordpress_ansible
+       sudo rm -rf docker-compose-wordpress.yml  && sudo rm -rf playbook.yml  hosts
+      ## sudo fuser -k 2224/tcp  ## Fermer les ports pour laisser le new container se connecter
+      ## sudo fuser -k 8930/tcp 
+  echo "
+  
+version: '3'
+services: 
+   db :
+      container_name: wp_mysql
+      image : mysql:5.7
+      volumes: 
+        - '/var/lib/:/var/lib/mysql'
+      restart : always
+      environment : 
+        MYSQL_ROOT_PASSWORD : rootpassword
+        MYSQL_DATABASE : db_mysql
+        MYSQL_USER : ${USER}
+        MYSQL_PASSWORD : mysqlPassword
+      networks :
+      - wp
+
+   wordpress: 
+     depends_on :
+       - db
+     container_name: wordpress_site
+     image: wordpress:latest
+     volumes: 
+       - '/var/:/var/www/html/'
+     ports:  
+       - 80:80
+     restart: always
+     environment: 
+       WORDPRESS_DB_HOST : db:3306
+       WORDPRESS_DB_USER : u_wordpress
+       WORDPRESS_DB_PASSWORD : p_wordpress
+     networks: 
+     - wp
+
+   phpmyadmin:
+     depends_on: 
+      - db
+     image: phpmyadmin/phpmyadmin
+     container_name: phpmyadmin
+     restart: always
+     ports: 
+      - 7777:80
+     environment: 
+       PMA_HOST: db
+       MYSQL_ROOT_PASSWORD : rootpassword
+     networks:
+        - wp
+networks: 
+  wp:
+    driver: bridge
+
+                  "> $DIR/wordpress_ansible/docker-compose-wordpress.yml
+
+echo "[4] - Impression du hosts dans le repertoire..."
+echo "
+      [webservers]       
+        192.168.100.20
+        #192.168.1.110
+        #127.0.0.1
+    "> $DIR/wordpress_ansible/hosts
+
+echo "[5] - impression du playbook.yml dans le repertoire..."
+echo "
+---
+- name: installation de wordpress sur nos web servers
+  hosts: webservers
+  remote_user: vagrant
+  tasks:
+  - name: Installation de docker sur Debian
+    apt: 
+      name=docker.io 
+    when: ansible_facts['os_family'] == 'Debian'
+    become: yes
+
+  - name: Installation de docker sur Redhat
+    yum: 
+      name=docker.io 
+      update-cache=yes
+    when: ansible_facts['os_family'] == 'Redhat'
+    become: yes
+
+  - name: installation de docker-compose sur Debian
+    apt: 
+      name=docker-compose 
+      state=present
+    when: ansible_facts['os_family'] == 'Debian'
+    become: yes
+
+  - name: installation de docker-compose sur RedHat
+    yum: 
+      name=docker-compose 
+      state=present
+    when: ansible_facts['os_family'] == 'Redhat'
+    become: yes
+
+
+  - name: Copie du docker-compose sur les noeuds 
+    copy: 
+      src:  $DIR/wordpress_ansible/docker-compose-wordpress.yml  
+      dest:  ~/wordpress/docker-compose.yml 
+  - name: Execution du docker-compose sur la machine distante
+    shell:
+      cmd: docker-compose up -d
+    become: yes
+
+      "> $DIR/wordpress_ansible/playbook.yml
+            
+echo "[6] - Lancement du conteneur wordpress sur les noeuds..."
+    ansible-playbook -i hosts playbook.yml 
+echo "
+   Credentials:                       
+          phpMyAdmin ===> { port: 7777 ,
+                            user : root
+                            Mysql_root_password: rootpassword 
+                            nom : phpmyadmin                          
+                             } 
+
+           mysql ===> {      port: 3306 ,
+                             mysql_root_password: rootpassword 
+                             mysql_user: ${USER}
+                             mysql_database: db_mysql
+                             mysql_password : mysqlPassword
+                             nom : wp_mysql                          
+                             } 
+                           
+          wordpress ===> {  port: 80 ,
+                            wordpress_db_host : db:3306
+                            wordpress_db_user : u_wordpress
+                            wordpress_db_password : p_wordpress
+                            nom : wordpress_site                          
+                             } 
+          
+          hosts ===>  {
+                        [wordpress]       
+                            192.168.100.20
+                            192.168.1.110
+                            127.0.0.1
+
+          }
+     "
+       
+}
+
+
+
+#Installation de jenkins
+jenkins(){
+  echo ""
+  echo "[1] - Installation de jenkins..."
+  echo ""
+  echo "[2] - recuperation du dossier de montage du volume de jenkins..."
+    cd $HOME
+    if [ -e datas ] && [ -d datas ] ; then
+       cd datas && mkdir jenkins
+    else
+       mkdir  -p $DIR/jenkins
+    fi
+  echo "[3] - Impression du docker-compose dans le repertoire..."
+       cd ${DIR}/jenkins
+       sudo rm -rf docker-compose-jenkins.yml  && sudo rm -rf jenkins_data
+       sudo docker rm -f jenkins_local 
+      ## sudo fuser -k 2224/tcp  ## Fermer les ports pour laisser le new container se connecter
+      ## sudo fuser -k 8930/tcp 
+  echo "
+--- 
+version: '2'
+services: 
+  jenkins: 
+    image: jenkins/jenkins:latest
+    container_name: jenkins
+    user: jenkins
+    environment: 
+      JENKINS_HOST_HOME: '$DIR/jenkins/jenkins_data'
+    ports: 
+      - '8080:8080'
+      - '5000:5000'
+      - '50000:50000'
+    volumes: 
+      - '$DIR/jenkins/jenkins_data::/var/jenkins_home'
+      - '/var/run/docker.sock:/var/run/docker.sock'
+
+                  "> $DIR/jenkins/docker-compose-jenkins.yml
+            
+echo "[4] - Lancement du conteneur jenkins..."
+docker-compose -f $DIR/jenkins/docker-compose-jenkins.yml up -d
+echo "
+   Credentials: 
+
+            ports: 8083:8080
+            nom  : jenkins_local   
+            
+
+          Commands : Ouvrez un navigateur et lancer http://ip:8083
+     "
+       
+}
+
+#Installation de jenkins avec ansible
+jenkins-ansible(){
+  echo ""
+  echo "[1] - Installation de jenkins..."
+  echo ""
+  echo "[2] - recuperation du dossier de montage du volume de jenkins..."
+    cd $HOME
+    if [ -e datas ] && [ -d datas ] ; then
+       cd datas && mkdir jenkins_ansible
+    else
+       mkdir  -p $DIR/jenkins_ansible
+    fi
+  echo " "
+  echo "[3] - Impression du docker-compose dans le repertoire..."
+  cd ${DIR}/jenkins_ansible
+       sudo rm -rf docker-compose-jenkins.yml  && sudo rm -rf playbook.yml  hosts
+      ## sudo fuser -k 2224/tcp  ## Fermer les ports pour laisser le new container se connecter
+      ## sudo fuser -k 8930/tcp 
+  echo "
+
+--- 
+version: '2'
+services: 
+  jenkins: 
+    image: jenkins/jenkins:latest
+    container_name: jenkins
+    user: jenkins
+    environment: 
+      JENKINS_HOST_HOME: '~/mesconteneurs/jenkins'
+    ports: 
+      - '8080:8080'
+      - '5000:5000'
+      - '50000:50000'
+    volumes: 
+      - '~/mesconteneurs/jenkins:/var/jenkins_home'
+      - '/var/run/docker.sock:/var/run/docker.sock'
+            
+                  "> $DIR/jenkins_ansible/docker-compose-jenkins.yml
+
+echo "[4] - Impression du hosts dans le repertoire..."
+echo ""
+echo "
+      [webservers]       
+        192.168.100.20
+        #192.168.1.110
+        #127.0.0.1
+    "> $DIR/jenkins_ansible/hosts
+
+echo "[5] - impression du playbook.yml dans le repertoire..."
+echo "  "
+echo "
+---
+- name: installation de jenkins sur nos web servers
+  hosts: webservers
+  remote_user: vagrant
+  tasks:
+  - name: Installation de docker sur Debian
+    apt: 
+      name=docker.io 
+    when: ansible_facts['os_family'] == 'Debian'
+    become: yes
+
+  - name: Installation de docker sur Redhat
+    yum: 
+      name=docker.io 
+      update-cache=yes
+    when: ansible_facts['os_family'] == 'Redhat'
+    become: yes
+
+  - name: installation de docker-compose sur Debian
+    apt: 
+      name=docker-compose 
+      state=present
+    when: ansible_facts['os_family'] == 'Debian'
+    become: yes
+
+  - name: installation de docker-compose sur RedHat
+    yum: 
+      name=docker-compose 
+      state=present
+    when: ansible_facts['os_family'] == 'Redhat'
+    become: yes
+
+
+  - name: Copie du docker-compose sur les noeuds 
+    copy: 
+      src:  $DIR/jenkins_ansible/docker-compose-jenkins.yml  
+      dest:  ~/mesconteneurs/jenkins/docker-compose.yml 
+  - name: Execution du docker-compose sur la machine distante
+    shell:
+      cmd: docker-compose up -d
+
+      "> $DIR/jenkins_ansible/playbook.yml
+            
+echo "[6] - Lancement du conteneur wordpress sur les noeuds..."
+    ansible-playbook -i hosts playbook.yml 
+echo "
+   Credentials: 
+
+            ports: 8083:8080
+            nom  : jenkins_local   
+            
+
+          Commands : Ouvrez un navigateur et lancer http://ip:8083
+     "
+       
+}
+#### EXECUTION DES FONCTIONS ###############################
+parse_options $@
+
+
+
+
+
